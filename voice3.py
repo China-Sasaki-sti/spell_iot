@@ -73,7 +73,7 @@ def main():
 
 # Define a destroy function for clean up everything after the script finished
 def destroy():
-    led.ChangeDutyCycle(100)
+    GPIO.output(LedPin,GPIO.HIGH)
     p.stop()
     # Release resource
     GPIO.cleanup()
