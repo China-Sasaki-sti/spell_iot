@@ -1,0 +1,280 @@
+クラゲのIoT
+ものものテック
+2021年07月30日 更新
+
+Raspberry Piで単語を高速音声認識
+
+
+どうも、クラゲです。
+Juliusを使ってラズパイで音声認識です。文章認識だと少し遅いのですが、事前に登録した単語で認識させると高速で音声操作可能です！
+
+
+呪文を唱えると発動される魔法のような気持ち良いレスポンス。
+Amazon EchoやGoogle Homeにも負けない、近未来的な操作が可能です。
+
+目次
+マイクの準備と優先度変更
+マイクのゲイン調整とJulius実行のための設定
+Juliusのインストール
+サンプルプログラムで音声認識
+オリジナル辞書を作って音声認識
+アプリとの連動
+参考にしたサイト
+ちょっと、インストールと設定するまでが長いですが、一旦設定してしまえば、実行自体は簡単ですので頑張りましょう！
+
+マイクの準備と優先度変更
+今回クラゲはUSBカメラのマイクを使用しましたが、USBマイク専用のデバイスでもOKです。
+
+
+まずUSBオーディオの優先度を確認します。
+
+cat /proc/asound/modules
+もし、下記のようにUSBオーディオの優先度が低い場合は優先度を変える必要があります。
+
+0 snd_bcm2835 1 snd_usb_audio
+
+以下のパスとファイル名でエディッタを立ち上げて新規作成します。
+
+sudo nano /etc/modprobe.d/alsa-base.conf
+以下のように3行書いて保存します。
+(nanoの操作：Ctrl+O、Enter、Ctrl+Xです）
+
+options snd slots=snd_usb_audio,snd_bcm2835
+options snd_usb_audio index=0
+options snd_bcm2835 index=1
+rebootして優先度を再チェックすると変更していると思います。
+
+cat /proc/asound/modules
+以下のようになればOK
+
+0 snd_usb_audio 1 snd_bcm2835
+
+マイクのゲイン調整とJulius実行のための設定
+サウンドカード番号確認
+この後の調整と設定で使うため、以下のコマンドでマイクのサウンドカード番号を確認します。
+
+arecord -l
+カード 0: Device [USB PnP Audio Device], デバイス 0: USB Audio [USB Audio]
+
+この場合だと、カード番号0 デバイス番号0 ということが分かります。
+
+マイクの確認
+録音してみて音を確かめます。
+以下はカード番号0,デバイス番号0の場合の例です。
+
+arecord -f S16_LE -r 44100 -Dhw:0,0 test.wav
+Ctrl+Cで録音停止したら、ファイルtest.wavが出来ているので、音を聞いてみます。
+ラズパイで直接聞く場合は、以下のコマンドです。
+
+aplay test.wav
+aplayでエラーが出た場合
+もし、以下のようなエラーが出てきた場合の対策です。
+
+ALSA lib pcm_dmix.c:1052:(snd_pcm_dmix_open) unable to open slave aplay: main:788: audio open error: そのようなファイルやディレクトリはありません
+
+音声入力側のカード番号とデバイス番号を確かめます。
+
+arecord -l
+音声出力側のカード番号とデバイス番号を確かめます。
+
+aplay -l
+音声入力側が、カード:0、デバイス:0
+音声出力側が、カード:1、デバイス:0
+だったとします。
+
+.asoundrcというファイルを作って、今の番号を設定します。
+
+nano ~/.asoundrc
+pcm.!default {
+    type asym
+    capture.pcm "input"
+    playback.pcm "output"
+}
+
+pcm.input {
+    type plug
+    slave {
+        pcm "hw:0,0"
+    }
+}
+
+pcm.output {
+    type plug
+    slave {
+        pcm "hw:1,0"
+    }
+}
+これで再生されるはずです。
+ちなみに、この設定はマイクを抜いた後にリブートすると書き換わってしまいます。
+面倒ですが、マイクを挿し直した場合は、再度設定しましょう
+
+マイクゲインの調整
+音量が小さかった場合はゲインを調整します。
+あまり上げ過ぎると色々な音を拾って、音声認識が誤認識しやすいので注意して下さい。
+また、USB機器によって数値は異なります。以下は15で設定していますが、結果のパーセントをチェックして調整しましょう。
+
+設定例1：USBカメラの場合
+
+amixer sset Mic 15 -c 0
+設定例2：USBマイクの場合
+
+amixer sset Mic 60 -c 0
+環境変数設定
+Juliusでエラーなく実行させるために以下の２つの環境変数設定を行います。
+
+ALSADEVにマイクのカード番号とデバイス番号を設定
+Juliusが参照する環境変数AUDIODEVにマイクのカード番号を紐づける
+それぞれ、以下のコマンドで設定できますが、ラズパイを再起動する度に設定が必要となり面倒です。
+
+export ALSADEV="plughw:0,0" export AUDIODEV=/dev/dsp
+
+そこで、ログイン時やラズパイ起動時に読み込まれるファイル"/etc/profile"を利用して、そこに追記することにします。
+
+sudo nano /etc/profile
+一番下に以下を追記します。
+
+例1：音声入力側のカード番号0、デバイス番号0 の場合
+
+#for Julius
+export ALSADEV="plughw:0,0"
+export AUDIODEV=/dev/dsp
+例2：音声入力側のカード番号1、デバイス番号0 の場合
+
+#for Julius
+export ALSADEV="plughw:1,0"
+export AUDIODEV=/dev/dsp1
+osspd-alsaのインストール
+Raspbian v2.8.1以前までは、モジュールsnd-pcm-ossが標準で入っていましたが、最新のOSではなくなってしまいました。
+そこでosspd-alsaをインストールして代用します。
+
+sudo apt-get install osspd-alsa
+これでrebootすればOKです。
+
+Juliusのインストール
+wgetを使ってJulius本体とディクテーションキットと文法認識キットの３つをダウンロードします。
+ディレクトリ位置は、デフォルト/home/piとしました。
+
+cd /home/pi
+sudo wget -O julius-4.4.2.tar.gz 'http://sourceforge.jp/frs/redir.php?m=osdn&f=%2Fjulius%2F60273%2Fjulius-4.3.1.tar.gz'
+
+sudo wget -O dictation-kit-v4.3.1-linux.tgz 'http://sourceforge.jp/frs/redir.php?m=jaist&f=%2Fjulius%2F60416%2Fdictation-kit-v4.3.1-linux.tgz'
+
+sudo wget -O grammar-kit-v4.1.tar.gz 'http://sourceforge.jp/frs/redir.php?m=osdn&f=%2Fjulius%2F51159%2Fgrammar-kit-v4.1.tar.gz'
+Julius本体を解凍してインストールします。
+
+tar zxvf julius-4.4.2.tar.gz
+
+cd julius-4.3.1
+
+./configure
+
+make
+
+sudo make install
+残りの２つのキットを解凍
+
+cd ..
+
+tar zxvf dictation-kit-v4.3.1-linux.tgz
+
+tar zxvf grammar-kit-v4.1.tar.gz
+サンプルプログラムで音声認識
+単語認識
+以下のコマンドを打ち、「ぶどう」「みかん」「りんご」としゃべってみて下さい。
+
+julius -C ~/grammar-kit-v4.1/testmic.jconf -charconv EUC-JP UTF-8
+「ぶどう」と「みかん」と「りんご」と何個あるかという組み合わせだけですが、瞬時に認識してます。
+しかも、結構離れた場所からも認識する！
+
+文章認識
+こちらはちょっと遅いですが、文章認識も可能です。
+
+cd dictation-kit-v4.3.1-linux
+
+julius -C main.jconf -C am-gmm.jconf -demo
+オリジナル辞書を作って音声認識
+デフォルト/home/piの位置でtest_juliusとフォルダを作成し、その中で行いました。
+
+cd /home/pi
+
+mkdir test_julius
+
+cd test_julius
+(1) 読みファイル作成
+テキストエディタで作成します。
+作り方は、以下を見れば何となく分かると思います。
+
+nano voice.yomi
+クラゲ  くらげ
+赤      あか
+緑      みどり
+青      あお
+認識単語と読み方を並べて書きます。
+認識単語 と 読み方 の間はTABです。スペースだとエラーになります。
+
+(2) 辞書ファイルに変換
+Juliusのツールを使って辞書ファイルに変換します。
+
+iconv -f utf8 -t eucjp voice.yomi | yomi2voca.pl > voice.dic
+(3) 設定ファイル作成
+実行時の設定用ファイルjconfを作成します。
+
+nano voice.jconf
+-w voice.dic
+-C /home/pi/grammar-kit-v4.1/hmm_ptm.jconf
+-input mic -demo
+パスにチルダ記号を使うとエラーになるので注意。
+
+(4) 実行
+julius -C voice.jconf -charconv EUC-JP UTF-8
+終了は Ctrl+C です。
+
+アプリとの連動
+Juliusをモジュールとして動かすと、サーバーサイドのようなソフトとして実行され、アプリ側に認識時のデータが渡されます。アプリ側で、認識された単語とその点数(0.0～1.0)から判断して音声認識を判断します。
+
+アプリ作成
+アプリ側のソースコード。
+Pythonです。ファイル名はvoice.pyとしました。
+
+nano voice.py
+import socket
+import xml.etree.ElementTree as ET
+
+client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client.connect(('localhost', 10500))
+
+try:
+    data = ''
+    while True:
+        if '</RECOGOUT>\n.' in data:
+            root = ET.fromstring('<?xml version="1.0"?>\n' + data[data.find('<RECOGOUT>'):].replace('\n.', ''))
+            for whypo in root.findall('./SHYPO/WHYPO'):
+                command = whypo.get('WORD')
+                score = float(whypo.get('CM'))
+
+                #認識された単語と点数を表示
+                print(command + ':' + str(score))
+
+                #0.9以上の場合、認識と表示
+                if score >= 0.9:
+                    if command == u'クラゲ':
+                        print('【 クラゲを認識 】')
+
+                    elif command == u'赤':
+                        print('【 赤を認識 】')
+
+                    elif command == u'緑':
+                        print('【 緑を認識 】')
+
+                    elif command == u'青':
+                        print('【 青を認識 】')
+
+                print('\n') #改行
+
+            data = ''
+
+        else:
+            data = data + client.recv(1024).decode('utf-8')#バイト列を文字列に変更してから連結
+
+except KeyboardInterrupt:
+    client.close()
