@@ -48,7 +48,7 @@ def main():
                 # 0.9以上の場合、認識と表示
                 if score >= 0.9:
                     if command == u'ウィンガーディアムレビオーサ':
-                        print('【モノガウク】')
+                        print('【トロールガ浮く】')
                         for i in range(0, 181, 5):   #make servo rotate from 0 to 180 deg
                             setAngle(i)     # Write to servo
                             time.sleep(0.002)
@@ -57,12 +57,12 @@ def main():
                             setAngle(i)
                             time.sleep(0.001)
                     elif command == u'ルーモス':
-                        print('【デンキツケル】')
+                        print('【ライト点灯】')
                         led.ChangeDutyCycle(90)
                         time.sleep(3)
                         led.ChangeDutyCycle(100)
                     elif command == u'ルーモスマキシマ':
-                        print('【ツヨメノデンキツケル】')
+                        print('【強めのライト点灯】')
                         led.ChangeDutyCycle(10)
                         time.sleep(3)
                         led.ChangeDutyCycle(100)
@@ -73,6 +73,8 @@ def main():
 
 # Define a destroy function for clean up everything after the script finished
 def destroy():
+    led.ChangeDutyCycle(100)
+    p.stop()
     # Release resource
     GPIO.cleanup()
 
